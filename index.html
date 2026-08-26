@@ -437,7 +437,7 @@
     </div>
 
     <main style="padding-top:0;">
-      <div class="card">
+      <div class="card" id="login-card">
         <div id="auth-err" class="err hidden"></div>
 
         <div class="field">
@@ -479,10 +479,26 @@
         <button class="btn-primary" id="btn-entrar">Entrar</button>
         <button class="btn-ghost hidden" id="btn-cadastrar">Criar minha conta</button>
 
+        <div id="esqueci-senha-wrap" style="text-align:center;margin-top:12px;">
+          <a href="#" id="link-esqueci-senha" style="font-size:12.5px;color:var(--text-muted);">Esqueci minha senha</a>
+        </div>
+
         <div class="toggle-row">
           <span id="toggle-text">Ainda não tem conta?</span>
           <a href="#" id="toggle-link">Cadastre-se como professor</a>
         </div>
+      </div>
+
+      <div class="card hidden" id="recovery-card">
+        <div id="recovery-err" class="err hidden"></div>
+        <h3 style="font-family:var(--font-display);font-size:17px;font-weight:600;margin-bottom:8px;">Recuperar senha</h3>
+        <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px;line-height:1.5;">Digite seu e-mail. Vamos mandar um link pra você criar uma senha nova.</p>
+        <div class="field">
+          <label>E-mail</label>
+          <input type="email" id="recovery-email" placeholder="seuemail@exemplo.com">
+        </div>
+        <button class="btn-primary" id="btn-enviar-recovery">Enviar link de recuperação</button>
+        <button class="btn-ghost" id="btn-cancelar-recovery">Voltar pro login</button>
       </div>
 
       <div class="contact-footer">
@@ -500,6 +516,25 @@
         </a>
       </div>
       <div class="copyright">MPH Trips &middot; MPH Indica</div>
+    </main>
+  </div>
+
+  <!-- ============ NOVA SENHA (via link do e-mail) ============ -->
+  <div id="view-reset-senha" class="hidden">
+    <div class="auth-hero">
+      <img class="logo-img lg" alt="MPH Trips">
+      <div class="eyebrow">MPH Trips &middot; Nova senha</div>
+      <h1>Defina sua nova senha</h1>
+    </div>
+    <main style="padding-top:0;">
+      <div class="card">
+        <div id="reset-err" class="err hidden"></div>
+        <div class="field">
+          <label>Nova senha</label>
+          <input type="password" id="reset-nova-senha" placeholder="••••••••">
+        </div>
+        <button class="btn-primary" id="btn-confirmar-nova-senha">Salvar nova senha</button>
+      </div>
     </main>
   </div>
 
@@ -839,7 +874,7 @@ function toast(msg){
 }
 
 function showView(id){
-  ['view-landing','view-auth','view-professor','view-admin'].forEach(v=>{
+  ['view-landing','view-auth','view-reset-senha','view-professor','view-admin'].forEach(v=>{
     $('#'+v).classList.toggle('hidden', v!==id);
   });
 }
@@ -875,6 +910,7 @@ function setCadastroMode(on){
   $('#cadastro-fields').classList.toggle('hidden', !on);
   $('#btn-entrar').classList.toggle('hidden', on);
   $('#btn-cadastrar').classList.toggle('hidden', !on);
+  $('#esqueci-senha-wrap').classList.toggle('hidden', on);
   $('#toggle-text').textContent = on ? 'Já tem conta?' : 'Ainda não tem conta?';
   $('#toggle-link').textContent = on ? 'Fazer login' : 'Cadastre-se como professor';
 }
@@ -940,6 +976,46 @@ $('#btn-cadastrar').addEventListener('click', async ()=>{
   if(err2){ showAuthErr('Conta criada, mas houve erro salvando seu perfil: ' + err2.message); return; }
   await resolveSession();
   toast(`Cadastro realizado! Bem-vindo(a), ${nome.split(' ')[0]}.`);
+});
+
+/* ---------- recuperação de senha ---------- */
+$('#link-esqueci-senha').addEventListener('click', (e)=>{
+  e.preventDefault();
+  $('#login-card').classList.add('hidden');
+  $('#recovery-card').classList.remove('hidden');
+});
+$('#btn-cancelar-recovery').addEventListener('click', ()=>{
+  $('#recovery-card').classList.add('hidden');
+  $('#login-card').classList.remove('hidden');
+});
+$('#btn-enviar-recovery').addEventListener('click', async ()=>{
+  const email = $('#recovery-email').value.trim();
+  const errEl = $('#recovery-err');
+  errEl.classList.add('hidden');
+  if(!email){ errEl.textContent = 'Digite seu e-mail.'; errEl.classList.remove('hidden'); return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+  if(error){ errEl.textContent = 'Erro ao enviar: ' + error.message; errEl.classList.remove('hidden'); return; }
+  toast('Link enviado! Confira seu e-mail (e a caixa de spam).');
+  $('#recovery-email').value = '';
+});
+
+sb.auth.onAuthStateChange((event)=>{
+  if(event === 'PASSWORD_RECOVERY'){
+    showView('view-reset-senha');
+  }
+});
+
+$('#btn-confirmar-nova-senha').addEventListener('click', async ()=>{
+  const novaSenha = $('#reset-nova-senha').value;
+  const errEl = $('#reset-err');
+  errEl.classList.add('hidden');
+  if(!novaSenha || novaSenha.length < 6){
+    errEl.textContent = 'A senha precisa ter pelo menos 6 caracteres.'; errEl.classList.remove('hidden'); return;
+  }
+  const { error } = await sb.auth.updateUser({ password: novaSenha });
+  if(error){ errEl.textContent = 'Erro ao salvar: ' + error.message; errEl.classList.remove('hidden'); return; }
+  toast('Senha atualizada! Entrando...');
+  await resolveSession();
 });
 
 async function resolveSession(){
