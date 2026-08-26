@@ -939,6 +939,7 @@ $('#btn-cadastrar').addEventListener('click', async ()=>{
   });
   if(err2){ showAuthErr('Conta criada, mas houve erro salvando seu perfil: ' + err2.message); return; }
   await resolveSession();
+  toast(`Cadastro realizado! Bem-vindo(a), ${nome.split(' ')[0]}.`);
 });
 
 async function resolveSession(){
