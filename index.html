@@ -344,13 +344,13 @@
         <div class="hook-icon">&#128176;</div>
         <h3>Indique e ganhe</h3>
         <p>Cada aluno que você indicar e fechar viagem com a gente vira comissão pra você — paga todo dia 20, direto na sua chave Pix.</p>
-        <div class="figures">
+        <div class="figures" id="hook-figures">
           <div class="figure">
-            <span class="val">R$100</span>
+            <span class="val" id="hook-valor-primeira">R$100</span>
             <span class="lbl">1&ordf; viagem &middot; por pax</span>
           </div>
-          <div class="figure">
-            <span class="val">R$50</span>
+          <div class="figure hidden" id="hook-figure-recorrente">
+            <span class="val" id="hook-valor-recorrente">R$0</span>
             <span class="lbl">viagens seguintes &middot; por pax</span>
           </div>
         </div>
@@ -615,11 +615,11 @@
           <div class="comm-highlight">
             <div class="row">
               <span class="lbl">1ª viagem do indicado</span>
-              <span class="val">R$ 100 / passageiro</span>
+              <span class="val" id="manual-valor-primeira">R$ 100 / passageiro</span>
             </div>
-            <div class="row">
+            <div class="row hidden" id="manual-row-recorrente">
               <span class="lbl">Viagens seguintes do mesmo cliente</span>
-              <span class="val">R$ 50 / passageiro</span>
+              <span class="val" id="manual-valor-recorrente">R$ 0 / passageiro</span>
             </div>
             <div class="row">
               <span class="lbl">Pagamento</span>
@@ -712,6 +712,7 @@
         <button class="tab-btn" data-atab="comissoes">Comissões</button>
         <button class="tab-btn" data-atab="professores">Professores</button>
         <button class="tab-btn" data-atab="pagamentos">Pagamentos</button>
+        <button class="tab-btn" data-atab="regras">Regras</button>
       </div>
 
       <div id="atab-geral">
@@ -784,6 +785,36 @@
         </p>
         <button class="btn-ghost" id="btn-exportar-csv" style="margin-bottom:16px;">Exportar lote em CSV</button>
         <div id="lista-pagamentos"><div class="loading">Carregando…</div></div>
+      </div>
+
+      <div id="atab-regras" class="hidden">
+        <h2 class="section-title" style="margin-bottom:10px;">Regra vigente</h2>
+        <div class="commission-hook" style="margin-bottom:20px;" id="regra-atual-card">
+          <div class="loading">Carregando…</div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <h2 class="section-title" style="margin-bottom:12px;">Cadastrar nova regra</h2>
+          <div class="field">
+            <label>Valor na 1ª viagem (por passageiro)</label>
+            <input type="number" id="regra-valor-primeira" placeholder="100" min="0" step="1">
+          </div>
+          <div class="field">
+            <label>Valor nas viagens seguintes (por passageiro)</label>
+            <input type="number" id="regra-valor-recorrente" placeholder="0" min="0" step="1">
+          </div>
+          <div class="field">
+            <label>Vigente a partir de</label>
+            <input type="date" id="regra-vigencia">
+          </div>
+          <button class="btn-primary" id="btn-salvar-regra">Salvar nova regra</button>
+          <p style="font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.5;">
+            Comissões já lançadas não mudam de valor. A regra nova só vale a partir da data escolhida — pode ser hoje ou uma data futura.
+          </p>
+        </div>
+
+        <h2 class="section-title">Histórico de regras</h2>
+        <div id="lista-regras"><div class="loading">Carregando…</div></div>
       </div>
     </main>
   </div>
@@ -864,6 +895,41 @@ const monthLabel = (key) => {
 };
 function escapeHtml(str){ const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
 function statusLabel(s){ return { pendente:'Pendente', fechado:'Fechado', nao_fechado:'Não fechado' }[s] || s; }
+
+/* ---------- regra de comissão vigente ---------- */
+let regraAtivaCache = null;
+async function getRegraAtiva(){
+  if(regraAtivaCache) return regraAtivaCache;
+  const { data, error } = await sb.from('regras_comissao')
+    .select('*')
+    .lte('vigencia_inicio', new Date().toISOString())
+    .order('vigencia_inicio', { ascending:false })
+    .limit(1)
+    .maybeSingle();
+  if(error || !data){ regraAtivaCache = { valor_primeira:100, valor_recorrente:0 }; return regraAtivaCache; }
+  regraAtivaCache = data;
+  return data;
+}
+
+async function preencherFigurasComissao(){
+  const regra = await getRegraAtiva();
+  const primeira = Number(regra.valor_primeira);
+  const recorrente = Number(regra.valor_recorrente);
+
+  const hookP = $('#hook-valor-primeira');
+  if(hookP){
+    hookP.textContent = 'R$' + primeira;
+    $('#hook-figure-recorrente').classList.toggle('hidden', recorrente <= 0);
+    if(recorrente > 0) $('#hook-valor-recorrente').textContent = 'R$' + recorrente;
+  }
+
+  const manualP = $('#manual-valor-primeira');
+  if(manualP){
+    manualP.textContent = brl(primeira) + ' / passageiro';
+    $('#manual-row-recorrente').classList.toggle('hidden', recorrente <= 0);
+    if(recorrente > 0) $('#manual-valor-recorrente').textContent = brl(recorrente) + ' / passageiro';
+  }
+}
 
 function toast(msg, duration){
   const t = document.createElement('div');
@@ -1026,7 +1092,7 @@ async function resolveSession(){
   if(admin){
     state.role = 'admin';
     showView('view-admin');
-    loadAdminOverview(); loadAdminLeads(); loadAdminComissoes(); loadAdminProfessores(); loadPagamentos();
+    loadAdminOverview(); loadAdminLeads(); loadAdminComissoes(); loadAdminProfessores(); loadPagamentos(); loadAdminRegras();
     return;
   }
 
@@ -1187,7 +1253,7 @@ $$('#view-admin [data-atab]').forEach(btn=>{
     $$('#view-admin [data-atab]').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
     const tab = btn.dataset.atab;
-    ['geral','leads','comissoes','professores','pagamentos'].forEach(t=>{
+    ['geral','leads','comissoes','professores','pagamentos','regras'].forEach(t=>{
       $('#atab-'+t).classList.toggle('hidden', t!==tab);
     });
   });
@@ -1405,7 +1471,8 @@ async function confirmarFechamento(leadId, passageiros){
 
   const { count } = await sb.from('vendas').select('*', { count:'exact', head:true }).eq('lead_id', leadId);
   const tipo = (count && count > 0) ? 'recorrente' : 'primeira';
-  const valorUnit = tipo === 'primeira' ? 100 : 50;
+  const regra = await getRegraAtiva();
+  const valorUnit = tipo === 'primeira' ? Number(regra.valor_primeira) : Number(regra.valor_recorrente);
   const valor = valorUnit * passageiros;
 
   const { error: e1 } = await sb.from('vendas').insert({
@@ -1540,10 +1607,73 @@ $('#btn-exportar-csv').addEventListener('click', async ()=>{
   toast('CSV exportado!');
 });
 
+/* ---------- admin: regras de comissão ---------- */
+async function loadAdminRegras(){
+  const { data, error } = await sb.from('regras_comissao')
+    .select('*')
+    .order('vigencia_inicio', { ascending:false });
+  const cardEl = $('#regra-atual-card');
+  const listEl = $('#lista-regras');
+  if(error){ cardEl.innerHTML = `<div class="empty">Erro ao carregar regras.</div>`; return; }
+  if(!data.length){
+    cardEl.innerHTML = `<div class="empty">Nenhuma regra cadastrada ainda.</div>`;
+    listEl.innerHTML = '';
+    return;
+  }
+
+  const now = new Date();
+  let vigente = data.find(r => new Date(r.vigencia_inicio) <= now);
+  if(!vigente) vigente = data[data.length-1];
+  regraAtivaCache = vigente;
+
+  cardEl.innerHTML = `
+    <div class="hook-icon">&#128176;</div>
+    <h3>R$ ${Number(vigente.valor_primeira)} na 1&ordf; viagem</h3>
+    <p>${Number(vigente.valor_recorrente) > 0 ? `+ R$ ${Number(vigente.valor_recorrente)} nas viagens seguintes, ` : 'Sem comissão nas viagens seguintes — '}por passageiro. Vigente desde ${fmtData(vigente.vigencia_inicio)}.</p>
+  `;
+
+  listEl.innerHTML = data.map(r=>{
+    const dataR = new Date(r.vigencia_inicio);
+    let status, cls;
+    if(r.id === vigente.id){ status='Vigente'; cls='fechado'; }
+    else if(dataR > now){ status='Futura'; cls='pendente'; }
+    else { status='Encerrada'; cls='nao_fechado'; }
+    return `
+    <div class="admin-list-item">
+      <div class="row1">
+        <div>
+          <div class="nome">R$ ${Number(r.valor_primeira)} / R$ ${Number(r.valor_recorrente)}</div>
+          <div class="prof">A partir de ${fmtData(r.vigencia_inicio)}</div>
+        </div>
+        <span class="badge ${cls}">${status}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+$('#btn-salvar-regra').addEventListener('click', async ()=>{
+  const valorPrimeira = parseFloat($('#regra-valor-primeira').value);
+  const valorRecorrente = parseFloat($('#regra-valor-recorrente').value) || 0;
+  const vigenciaInput = $('#regra-vigencia').value;
+  if(!valorPrimeira || valorPrimeira <= 0){ toast('Informe o valor da 1ª viagem.'); return; }
+  if(!vigenciaInput){ toast('Escolha a data de início da vigência.'); return; }
+  const vigenciaIso = new Date(vigenciaInput + 'T00:00:00').toISOString();
+  const { error } = await sb.from('regras_comissao').insert({
+    valor_primeira: valorPrimeira, valor_recorrente: valorRecorrente, vigencia_inicio: vigenciaIso
+  });
+  if(error){ toast('Erro ao salvar: '+error.message); return; }
+  regraAtivaCache = null;
+  toast('Regra salva!');
+  $('#regra-valor-primeira').value=''; $('#regra-valor-recorrente').value=''; $('#regra-vigencia').value='';
+  loadAdminRegras();
+  preencherFigurasComissao();
+});
+
 /* ============================================================
    BOOT
    ============================================================ */
 resolveSession();
+preencherFigurasComissao();
 </script>
 </body>
 </html>
