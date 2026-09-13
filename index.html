@@ -184,10 +184,11 @@
   .comm-highlight .row .val{font-family:var(--font-mono);color:var(--gold-bright);font-weight:600;font-size:14px;text-align:right;white-space:nowrap;}
 
   /* ---------- tabs ---------- */
-  .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--navy-elevated);
-    border:1px solid var(--border);border-radius:12px;padding:4px;overflow-x:auto;}
-  .tab-btn{flex:1;background:none;border:none;color:var(--text-muted);padding:10px 6px;
-    font-size:12.5px;font-weight:600;border-radius:9px;font-family:var(--font-body);white-space:nowrap;}
+  .tabs{display:flex;gap:3px;margin-bottom:20px;background:var(--navy-elevated);
+    border:1px solid var(--border);border-radius:12px;padding:4px;}
+  .tab-btn{flex:1 1 0%;min-width:0;background:none;border:none;color:var(--text-muted);padding:9px 2px;
+    font-size:10.5px;font-weight:600;border-radius:9px;font-family:var(--font-body);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
   .tab-btn.active{background:var(--gold);color:#0B1F3A;}
 
   h2.section-title{font-family:var(--font-display);font-size:18px;font-weight:600;margin-bottom:14px;}
@@ -233,6 +234,9 @@
   .summary-card .label{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;}
   .summary-card .value{font-family:var(--font-mono);font-size:20px;color:var(--gold-bright);margin-top:6px;font-weight:600;}
   .summary-card .sub{font-size:11px;color:var(--text-muted);margin-top:2px;}
+  .payment-forecast{background:var(--navy-elevated);border:1px dashed var(--gold);border-radius:12px;
+    padding:13px 16px;margin-bottom:16px;text-align:center;font-size:12.5px;color:var(--text);line-height:1.5;}
+  .payment-forecast strong{color:var(--gold-bright);}
 
   .stub{position:relative;display:flex;background:var(--navy-card);border:1px solid var(--border);
     border-radius:12px;overflow:hidden;margin-bottom:12px;}
@@ -646,6 +650,7 @@
             <div class="sub">desde o início</div>
           </div>
         </div>
+        <div class="payment-forecast" id="prof-payment-forecast"></div>
         <div class="filter-row">
           <select class="select-filter" id="filtro-mes-professor">
             <option value="todos">Todos os meses</option>
@@ -780,7 +785,7 @@
       </div>
 
       <div id="atab-pagamentos" class="hidden">
-        <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px;">
+        <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px;" id="pagamentos-intro-texto">
           Pagamento em lote todo dia 20. Comissões abaixo ainda não foram marcadas como pagas.
         </p>
         <button class="btn-ghost" id="btn-exportar-csv" style="margin-bottom:16px;">Exportar lote em CSV</button>
@@ -1065,6 +1070,15 @@ $('#btn-enviar-recovery').addEventListener('click', async ()=>{
   $('#recovery-email').value = '';
 });
 
+function isPasswordRecoveryUrl(){
+  const hash = window.location.hash || '';
+  const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
+  if(hashParams.get('type') === 'recovery') return true;
+  const search = new URLSearchParams(window.location.search || '');
+  if(search.get('type') === 'recovery') return true;
+  return false;
+}
+
 sb.auth.onAuthStateChange((event)=>{
   if(event === 'PASSWORD_RECOVERY'){
     showView('view-reset-senha');
@@ -1081,10 +1095,15 @@ $('#btn-confirmar-nova-senha').addEventListener('click', async ()=>{
   const { error } = await sb.auth.updateUser({ password: novaSenha });
   if(error){ errEl.textContent = 'Erro ao salvar: ' + error.message; errEl.classList.remove('hidden'); return; }
   toast('Senha atualizada! Entrando...');
+  window.history.replaceState({}, document.title, window.location.pathname);
   await resolveSession();
 });
 
 async function resolveSession(){
+  if(isPasswordRecoveryUrl()){
+    showView('view-reset-senha');
+    return;
+  }
   const { data:{ session } } = await sb.auth.getSession();
   if(!session){ showView('view-landing'); return; }
 
@@ -1179,10 +1198,29 @@ async function loadMinhasComissoes(){
   renderMinhasComissoes();
 }
 
+function proximoDia20(){
+  const now = new Date();
+  let ano = now.getFullYear();
+  let mes = now.getMonth();
+  if(now.getDate() >= 20){ mes += 1; if(mes > 11){ mes = 0; ano += 1; } }
+  return new Date(ano, mes, 20).toLocaleDateString('pt-BR', { day:'2-digit', month:'long' });
+}
+
 function renderMinhasComissoes(){
   const el = $('#lista-comissoes');
   const filtro = $('#filtro-mes-professor').value;
   const data = filtro==='todos' ? minhasComissoesCache : minhasComissoesCache.filter(v=>monthKey(v.data_fechamento)===filtro);
+
+  const pendente = minhasComissoesCache.filter(v=>!v.pago).reduce((s,v)=>s+Number(v.valor_comissao),0);
+  const qtdPendente = minhasComissoesCache.filter(v=>!v.pago).length;
+  const forecastEl = $('#prof-payment-forecast');
+  if(qtdPendente > 0){
+    forecastEl.innerHTML = `${qtdPendente} comissão${qtdPendente>1?'ões':''} lançada${qtdPendente>1?'s':''}, totalizando <strong>${brl(pendente)}</strong>. Previsão de pagamento: <strong>${proximoDia20()}</strong>.`;
+    forecastEl.classList.remove('hidden');
+  } else {
+    forecastEl.innerHTML = `Nenhuma comissão pendente de pagamento no momento.`;
+    forecastEl.classList.remove('hidden');
+  }
 
   if(!minhasComissoesCache.length){
     el.innerHTML = `<div class="empty">Suas comissões aparecem aqui assim que um lead fechar.</div>`;
@@ -1522,12 +1560,97 @@ function renderAdminComissoes(){
           <div class="badge ${v.pago?'fechado':'pendente'}" style="margin-top:4px;">${v.pago?'Pago':'A pagar'}</div>
         </div>
       </div>
+      <div class="acts">
+        <button class="btn-sm outline" data-editar-venda="${v.id}">Editar</button>
+        <button class="btn-sm red" data-apagar-venda="${v.id}">Apagar</button>
+      </div>
     </div>
   `).join('');
 }
 
+document.body.addEventListener('click', (e)=>{
+  const editarId = e.target.dataset.editarVenda;
+  const apagarId = e.target.dataset.apagarVenda;
+  if(editarId){ abrirModalEditarVenda(editarId); }
+  if(apagarId){ abrirModalApagarVenda(apagarId); }
+});
+
+function abrirModalEditarVenda(vendaId){
+  const venda = cacheAllVendas.find(v=>v.id===vendaId);
+  if(!venda) return;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <h3>Editar comissão</h3>
+      <p>${escapeHtml(venda.professores?.nome || '—')} · ${fmtData(venda.data_fechamento)}</p>
+      <div class="field">
+        <label>Passageiros</label>
+        <input type="number" id="edit-passageiros" min="1" value="${venda.passageiros}">
+      </div>
+      <div class="field">
+        <label>Valor da comissão (R$)</label>
+        <input type="number" id="edit-valor" min="0" step="0.01" value="${venda.valor_comissao}">
+      </div>
+      <div class="field">
+        <label>Tipo</label>
+        <select id="edit-tipo">
+          <option value="primeira" ${venda.tipo==='primeira'?'selected':''}>1ª venda</option>
+          <option value="recorrente" ${venda.tipo==='recorrente'?'selected':''}>Recorrente</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Status do pagamento</label>
+        <select id="edit-pago">
+          <option value="nao" ${!venda.pago?'selected':''}>A pagar</option>
+          <option value="sim" ${venda.pago?'selected':''}>Pago</option>
+        </select>
+      </div>
+      <button class="btn-primary" id="modal-salvar-edicao">Salvar alterações</button>
+      <button class="btn-ghost" id="modal-cancelar-edicao">Cancelar</button>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  $('#modal-cancelar-edicao').addEventListener('click', ()=>backdrop.remove());
+  $('#modal-salvar-edicao').addEventListener('click', async ()=>{
+    const passageiros = parseInt($('#edit-passageiros').value, 10);
+    const valor = parseFloat($('#edit-valor').value);
+    const tipo = $('#edit-tipo').value;
+    const pago = $('#edit-pago').value === 'sim';
+    if(!passageiros || passageiros < 1 || isNaN(valor) || valor < 0){
+      toast('Confira os valores informados.'); return;
+    }
+    const payload = { passageiros, valor_comissao: valor, tipo, pago };
+    if(pago && !venda.pago) payload.data_pagamento = new Date().toISOString();
+    if(!pago) payload.data_pagamento = null;
+    const { error } = await sb.from('vendas').update(payload).eq('id', vendaId);
+    if(error){ toast('Erro ao salvar: '+error.message); return; }
+    toast('Comissão atualizada!');
+    backdrop.remove();
+    loadAdminComissoes(); loadAdminProfessores(); loadPagamentos(); loadAdminOverview();
+  });
+}
+
+function abrirModalApagarVenda(vendaId){
+  const venda = cacheAllVendas.find(v=>v.id===vendaId);
+  if(!venda) return;
+  confirmModal(
+    'Apagar esta comissão?',
+    `${escapeHtml(venda.professores?.nome || '—')} · ${brl(venda.valor_comissao)} · ${fmtData(venda.data_fechamento)}. Essa ação não pode ser desfeita, e não muda o status do lead relacionado.`,
+    async ()=>{
+      const { error } = await sb.from('vendas').delete().eq('id', vendaId);
+      if(error){ toast('Erro ao apagar: '+error.message); return; }
+      toast('Comissão apagada.');
+      loadAdminComissoes(); loadAdminProfessores(); loadPagamentos(); loadAdminOverview();
+    },
+    'Apagar'
+  );
+}
+
 /* ---------- admin: pagamentos ---------- */
 async function loadPagamentos(){
+  const introEl = $('#pagamentos-intro-texto');
+  if(introEl) introEl.textContent = `Pagamento em lote todo dia 20 — próximo em ${proximoDia20()}. Comissões abaixo ainda não foram marcadas como pagas.`;
   const { data, error } = await sb.from('vendas')
     .select('*, professores(nome, chave_pix)')
     .eq('pago', false)
